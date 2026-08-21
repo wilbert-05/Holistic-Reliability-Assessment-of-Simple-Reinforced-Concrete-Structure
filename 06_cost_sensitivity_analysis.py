@@ -3,18 +3,22 @@ Reliability Assessment of an RC Beam
 =====================================
 Module 6: Cost sensitivity analysis.
 
-Two one-at-a-time sensitivity sweeps around the two calibration inputs that
-are taken from the literature rather than measured directly:
+Three one-at-a-time sensitivity sweeps around calibration inputs that are
+taken from the literature, from an operational assumption, or otherwise not
+measured directly:
 
   A) Discount rate r, swept from 1% to 10% in steps of 1%.
   B) Severity exponent (power) in severity_mult(), swept from 0.1 to 1.0.
+  C) Inspection interval dt_insp, swept from 1 to 25 years.
 
 For each sweep value, run_cost_optimization() is re-run for BOTH exposure
 classes and the resulting optimal cover and minimum total cost are recorded.
 
-IMPORTANT: this temporarily overwrites the module-level r_disc / severity_mult
-used by disc()/get_C_STRUCT()/get_Ff()/get_rep_costs(), then restores the
-original values at the end so the rest of the analysis is unaffected.
+IMPORTANT: each sweep temporarily overwrites the relevant module-level
+attribute in Module 05 (r_disc, severity_mult, or dt_insp) used internally by
+disc()/get_C_STRUCT()/get_Ff()/get_rep_costs()/the inspection cost routine,
+then restores the original value at the end so the rest of the analysis is
+unaffected.
 
 N=6000 matches the headline Monte Carlo sample size used in Module 5 (Table
 4.7/4.9 in the dissertation). An earlier run at N=2000 produced slightly
@@ -86,6 +90,33 @@ def run_severity_exponent_sweep():
     return pd.DataFrame(rows).set_index("severity_power")
 
 
+# =============================================================================
+# C. Inspection interval sensitivity, dt_insp = 1 ... 25 years
+# All other assumptions (reliability model, material parameters, discount
+# rate, severity exponent, service life, cover-search range, repair/failure
+# cost formulation) are held at their Module 05 baseline values. Only the
+# inspection interval -- and the discounted inspection cost it implies -- is
+# varied.
+# =============================================================================
+
+
+def run_inspection_interval_sweep():
+    dt_insp_original = lco.dt_insp
+    interval_grid = [1, 2, 5, 10, 15, 20, 25]
+    rows = []
+    for interval in interval_grid:
+        lco.dt_insp = float(interval)
+        cost_A_xc3, c_opt_xc3, _ = lco.run_cost_optimization("XC3", N=N_SENSITIVITY)
+        cost_A_xc4, c_opt_xc4, _ = lco.run_cost_optimization("XC4", N=N_SENSITIVITY)
+        rows.append({
+            "dt_insp": interval,
+            "c_opt_XC3": c_opt_xc3, "TOTAL_XC3": cost_A_xc3.loc[c_opt_xc3, "TOTAL"],
+            "c_opt_XC4": c_opt_xc4, "TOTAL_XC4": cost_A_xc4.loc[c_opt_xc4, "TOTAL"],
+        })
+    lco.dt_insp = dt_insp_original  # restore baseline
+    return pd.DataFrame(rows).set_index("dt_insp")
+
+
 if __name__ == "__main__":
     print("Running discount-rate sensitivity sweep (1%-10%)...")
     table_discount_rate = run_discount_rate_sweep()
@@ -94,6 +125,10 @@ if __name__ == "__main__":
     print("\nRunning severity-exponent sensitivity sweep (0.1-1.0)...")
     table_severity_exponent = run_severity_exponent_sweep()
     print(table_severity_exponent)
+
+    print("\nRunning inspection-interval sensitivity sweep (1-25 years)...")
+    table_inspection_interval = run_inspection_interval_sweep()
+    print(table_inspection_interval)
 
     # Sanity check 1: XC3 TOTAL must be constant across the severity sweep.
     xc3_variation = table_severity_exponent["TOTAL_XC3"].std()
